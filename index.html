@@ -1,0 +1,1670 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Skyjo 2D - Multiplayer</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Font -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
+    
+    <style>
+        body {
+            font-family: 'Poppins', sans-serif;
+            background-color: #0f172a; /* bg-slate-900 */
+            color: #f1f5f9; /* bg-slate-100 */
+            min-height: 100vh;
+        }
+
+        /* --- FORCED: Einheitliche Kartengrößen --- */
+        .card {
+            box-sizing: border-box !important;
+            width: 60px !important;
+            height: 85px !important;
+            border-radius: 8px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            overflow: hidden !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            border: 2px solid #334155; /* border-slate-700 */
+            user-select: none; /* Verhindert Textauswahl beim Klicken */
+        }
+
+        .card.face-down {
+            background: linear-gradient(135deg, #3b82f6, #1d4ed8) !important;
+            color: white !important;
+            font-size: 0.75rem !important;
+            line-height: 1 !important;
+            text-align: center !important;
+            border-color: #60a5fa !important;
+            white-space: nowrap !important;
+        }
+
+        .card.face-up {
+            /* KORREKTUR: !important entfernt, damit data-value Farben funktionieren */
+            background-color: #1e293b; 
+            border-color: #475569;
+            font-size: 1.75rem !important;
+            font-weight: 700 !important;
+            border: 2px solid #334155; /* border-slate-700 */
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+            transition: all 0.2s ease-in-out;
+            cursor: pointer;
+        }
+        
+        /* Karten-Farben (unverändert) */
+        .card[data-value="-2"] { background-color: #ef4444; color: white; border-color: #f87171; }
+        .card[data-value="-1"] { background-color: #ec4899; color: white; border-color: #f9a8d4; }
+        .card[data-value="0"]  { background-color: #64748b; color: white; border-color: #94a3b8; }
+        .card[data-value="1"], .card[data-value="2"], .card[data-value="3"], .card[data-value="4"] { 
+            background-color: #22c55e; color: white; border-color: #4ade80;
+        }
+        .card[data-value="5"], .card[data-value="6"], .card[data-value="7"], .card[data-value="8"] { 
+            background-color: #eab308; color: white; border-color: #fde047;
+        }
+        .card[data-value="9"], .card[data-value="10"], .card[data-value="11"], .card[data-value="12"] { 
+            background-color: #f97316; color: white; border-color: #fb923c;
+        }
+        
+        .card.discarded {
+            background-color: #334155;
+            border-color: #475569;
+            opacity: 0.3;
+            color: #64748b;
+            cursor: not-allowed;
+        }
+
+        .deck-pile {
+            border: 2px dashed #475569;
+        }
+        .deck-pile:hover {
+            border-color: white;
+        }
+        
+        /* Hervorhebung */
+        .card.highlight-player {
+            box-shadow: 0 0 15px 5px #3b82f6; /* Blauer Schein */
+            border-color: white;
+            transform: scale(1.05);
+        }
+        .card.highlight-opponent {
+            box-shadow: 0 0 15px 5px #ef4444; /* Roter Schein */
+            border-color: white;
+            transform: scale(1.05);
+        }
+        
+        .highlight-grid-player {
+            box-shadow: 0 0 25px 10px #3b82f6;
+            border-radius: 8px;
+            transition: box-shadow 0.2s ease-in-out;
+        }
+        .highlight-grid-opponent {
+            box-shadow: 0 0 25px 10px #ef4444;
+            border-radius: 8px;
+            transition: box-shadow 0.2s ease-in-out;
+        }
+        
+        /* Modal (unverändert) */
+        #modal {
+            background-color: rgba(15, 23, 42, 0.9);
+            backdrop-filter: blur(8px);
+            z-index: 30; 
+        }
+
+        #loader {
+            background-color: rgba(15, 23, 42, 0.9);
+            backdrop-filter: blur(8px);
+            z-index: 60;
+        }
+        .spinner {
+            border-top-color: #3b82f6;
+            animation: spin 1s linear infinite;
+        }
+
+        /* Helper-Klasse, um Elemente basierend auf dem Status ein-/auszublenden (ENTFERNT) */
+        /* [data-status] { display: none; } */
+        /* [data-status="active"] { display: block; } */
+        /* [data-status-flex="active"] { display: flex; } */
+    </style>
+</head>
+<body>
+
+    <!-- Info Button (unverändert) -->
+    <button id="info-button" class="fixed top-4 right-4 w-12 h-12 bg-blue-600 hover:bg-blue-700 text-white font-bold text-2xl rounded-full shadow-lg z-50 flex items-center justify-center">
+        ?
+    </button>
+    
+    <!-- NEU: Spiel verlassen Button -->
+    <button id="leave-game-button" class="fixed top-4 left-4 w-12 h-12 bg-red-600 hover:bg-red-700 text-white font-bold text-2xl rounded-full shadow-lg z-50 flex items-center justify-center hidden" title="Spiel verlassen">
+        &times;
+    </button>
+    
+    <!-- Punktestand der letzten Runde (unverändert) -->
+    <div id="previous-score-display" class="fixed top-4 left-18 bg-slate-800/80 backdrop-blur-sm p-3 rounded-lg shadow-lg z-20 hidden border border-slate-700">
+        <h3 class="text-sm font-bold text-yellow-400 mb-2 border-b border-slate-600 pb-1">Letzte Runde</h3>
+        <div id="previous-scores-list" class="text-xs space-y-1"></div>
+    </div>
+
+    <!-- Haupt-Container -->
+    <div class="w-full max-w-7xl mx-auto p-4 mt-4">
+
+        <!-- NEU: Lobby-Bildschirm (data-status="active" entfernt) -->
+        <div id="lobby-screen" class="max-w-md w-11/12 mx-auto text-center">
+            <h2 class="text-4xl font-bold mb-8 text-blue-400">Skyjo Multiplayer</h2>
+            <p class="text-lg text-slate-300 mb-6">Erstelle ein Spiel oder tritt einem bei.</p>
+
+            <div class="space-y-6 text-left">
+                <!-- Spiel erstellen -->
+                <button id="create-game-button" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-4 px-8 rounded-lg text-2xl transition-colors">
+                    Neues Spiel erstellen
+                </button>
+                
+                <div class="relative flex items-center justify-center">
+                    <span class="flex-grow border-t border-slate-700"></span>
+                    <span class="flex-shrink mx-4 text-slate-400">ODER</span>
+                    <span class="flex-grow border-t border-slate-700"></span>
+                </div>
+
+                <!-- Spiel beitreten -->
+                <div>
+                    <label for="game-id-input" class="block text-lg font-semibold mb-2 text-slate-200">Spiel-ID beitreten</label>
+                    <div class="flex gap-2">
+                        <input type="text" id="game-id-input" placeholder="Spiel-ID..." class="flex-grow p-3 bg-slate-700 border border-slate-600 rounded-lg text-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <button id="join-game-button" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-5 rounded-lg text-lg transition-colors">
+                            Beitreten
+                        </button>
+                    </div>
+                </div>
+
+                <!-- NEU: Wartebereich (wird angezeigt, nachdem ein Spiel erstellt/beigetreten wurde) -->
+                <div id="lobby-wait-area" class="hidden mt-8 p-4 bg-slate-800 border border-slate-700 rounded-lg">
+                    <h3 class="text-2xl font-bold text-yellow-400 mb-4">Warte auf Spieler...</h3>
+                    
+                    <div class="mb-4">
+                        <label class="block text-sm font-semibold text-slate-200">Spiel-ID (zum Teilen):</label>
+                        <div class="flex items-center gap-2 mt-1">
+                            <input id="game-id-share" type="text" readonly class="p-2 bg-slate-900 border border-slate-600 rounded-lg text-white font-mono w-full">
+                            <button id="copy-game-id-button" class="bg-slate-600 hover:bg-slate-700 text-white font-bold p-2 rounded-lg">Kopieren</button>
+                        </div>
+                    </div>
+
+                    <div class="mb-4">
+                        <h4 class="text-lg font-semibold text-slate-200 mb-2">Spieler in der Lobby:</h4>
+                        <ul id="player-list" class="list-disc list-inside text-white space-y-1">
+                            <!-- Spieler werden hier dynamisch eingefügt -->
+                        </ul>
+                    </div>
+
+                    <button id="start-game-button" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-6 rounded-lg text-lg transition-colors hidden">
+                        Spiel starten (Host)
+                    </button>
+                </div>
+            </div>
+            <p id="lobby-error" class="text-red-400 mt-4 h-6"></p>
+        </div>
+
+
+        <!-- Spiel-Container (data-status="inactive" entfernt) -->
+        <div id="game-container" class="hidden">
+            
+            <!-- Gegner-Bereich (wird dynamisch gefüllt) -->
+            <div id="opponents-area" class="flex flex-wrap justify-center gap-6 mb-6">
+                <!-- Gegner-Container werden hier eingefügt -->
+            </div>
+
+            <!-- Spiel-Bereich (Mitte) -->
+            <div id="deck-area" class="flex justify-center items-center gap-4 mb-6">
+                <!-- Nachziehstapel -->
+                <div id="deck-pile" class="card face-down deck-pile" title="Vom Stapel ziehen">
+                    SKYJO
+                </div>
+                
+                <!-- NEU: Temporärer Haltebereich für gezogene Karte -->
+                <div id="drawn-card-area" class="card face-up border-dashed border-slate-600" title="Gezogene Karte">
+                    <!-- Wird per JS gefüllt -->
+                </div>
+
+                <!-- Ablagestapel -->
+                <div id="discard-pile" class="card face-up" title="Vom Ablagestapel ziehen">
+                    <!-- Startkarte wird hier eingefügt -->
+                </div>
+            </div>
+            
+            <!-- Spieler-Bereich -->
+            <div id="player-area">
+                <h2 class="text-xl font-bold mb-2 text-center text-blue-400">Dein Feld</h2>
+                <!-- Korrektur: justify-center und gap-x-4/gap-y-2 angewendet -->
+                <div id="player-grid" class="grid grid-cols-[repeat(4,60px)] gap-y-2 gap-x-4 justify-center mb-2">
+                    <!-- Spieler-Karten werden hier eingefügt -->
+                </div>
+                <p class="text-center text-lg font-semibold">Punkte: <span id="player-score">0</span></p>
+            </div>
+            
+            <!-- Nachrichten-Bereich -->
+            <div id="message-area" class="text-center text-lg font-semibold text-yellow-400 mt-4 h-12">
+                Willkommen bei Skyjo!
+            </div>
+
+        </div>
+    </div>
+    
+    <!-- Modals (unverändert) -->
+    <div id="modal" class="fixed inset-0 w-full h-full items-center justify-center hidden z-30">
+        <div class="bg-slate-800 p-8 rounded-lg shadow-2xl border border-slate-700 text-center">
+            <h2 id="modal-title" class="text-3xl font-bold mb-4">Runde beendet!</h2>
+            <div id="modal-scores-container" class="text-lg mb-6 space-y-4"></div>
+            <p id="modal-winner" class="text-2xl font-semibold mb-8"></p>
+            <button id="restart-button" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg text-lg transition-colors">
+                Nächste Runde
+            </button>
+        </div>
+    </div>
+    
+    <div id="rules-modal" class="fixed inset-0 w-full h-full items-center justify-center hidden z-40">
+        <div class="absolute inset-0 w-full h-full" style="background-color: rgba(15, 23, 42, 0.9); backdrop-filter: blur(8px);" id="rules-modal-bg"></div>
+        <div class="relative bg-slate-800 p-8 rounded-lg shadow-2xl border border-slate-700 max-w-2xl w-11/12 max-h-[80vh] overflow-y-auto">
+            <h2 class="text-3xl font-bold mb-6 text-center text-yellow-400">Spielregeln</h2>
+            <!-- Regeln (unverändert) -->
+            <div class="space-y-4 text-slate-200 text-left">
+                <div>
+                    <h3 class="text-xl font-semibold mb-2 text-blue-400">Ziel des Spiels</h3>
+                    <p>Sammle über mehrere Runden die wenigsten Punkte.</p>
+                </div>
+                <div>
+                    <h3 class="text-xl font-semibold mb-2 text-blue-400">Spielablauf</h3>
+                    <p>Du bist am Zug und musst eine Karte ziehen.</p>
+                </div>
+                <div class="ml-4 p-4 bg-slate-900 rounded-lg border border-slate-700">
+                    <h4 class="text-lg font-semibold text-orange-400">1. Vom ABLAGESTAPEL (offene Karte)</h4>
+                    <p>Du <span class="font-bold text-red-400">MUSST</span> diese Karte nehmen und sie gegen eine deiner 12 Karten (egal ob offen oder verdeckt) tauschen. Deine alte Karte landet auf dem Ablagestapel.</p>
+                </div>
+                <div class="ml-4 p-4 bg-slate-900 rounded-lg border border-slate-700">
+                    <h4 class="text-lg font-semibold text-green-400">2. Vom NACHZIEHSTAPEL (verdeckte Karte)</h4>
+                    <p>Du siehst dir die Karte an und entscheidest:</p>
+                    <ul class="list-disc list-inside ml-4 mt-2">
+                        <li><strong>TAUSCHEN:</strong> Du tauschst die gezogene Karte gegen eine deiner 12 Karten (offen oder verdeckt).</li>
+                        <li><strong>ABLEGEN:</strong> Du wirfst die gezogene Karte auf den Ablagestapel. Dafür <span class="font-bold text-red-400">MUSST</span> du eine deiner noch verdeckten Karten aufdecken. Dein Zug ist danach <span class="font-bold">sofort beendet</span>.</li>
+                    </ul>
+                </div>
+                 <div>
+                    <h3 class="text-xl font-semibold mb-2 mt-4 text-blue-400">Sonderregeln</h3>
+                    <ul class="list-disc list-inside ml-4 space-y-2">
+                        <li><strong>Spalte abräumen:</strong> Wenn 3 gleiche Karten in einer senkrechten Spalte aufgedeckt sind, wird die gesamte Spalte abgeräumt (zählt 0 Punkte).</li>
+                        <li><strong>Runden-Ende:</strong> Sobald ein Spieler alle 12 Karten aufgedeckt hat, sind alle anderen Spieler noch genau einmal dran.</li>
+                        <li><strong>Strafe (Skyjo-Regel):</strong> Wenn der Spieler, der die Runde beendet hat, <span class="font-bold">nicht</span> die wenigsten Punkte hat (und sein Punktestand positiv ist), werden seine Punkte für diese Runde verdoppelt.</li>
+                    </ul>
+                </div>
+            </div>
+            <button id="close-rules-button" class="mt-8 bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg text-lg transition-colors w-full">
+                Verstanden!
+            </button>
+        </div>
+    </div>
+
+    <!-- NEU: Spiel verlassen Modal -->
+    <div id="leave-modal" class="fixed inset-0 w-full h-full items-center justify-center hidden z-40">
+        <div class="absolute inset-0 w-full h-full" style="background-color: rgba(15, 23, 42, 0.9); backdrop-filter: blur(8px);" id="leave-modal-bg"></div>
+        <div class="relative bg-slate-800 p-8 rounded-lg shadow-2xl border border-slate-700 max-w-md w-11/12 text-center">
+            <h2 class="text-3xl font-bold mb-6 text-yellow-400">Spiel verlassen?</h2>
+            <p class="text-lg text-slate-200 mb-8">Möchtest du das aktuelle Spiel wirklich verlassen?</p>
+            
+            <div class="flex justify-center gap-4">
+                <button id="cancel-leave-button" class="bg-slate-600 hover:bg-slate-700 text-white font-bold py-3 px-6 rounded-lg text-lg transition-colors w-1/2">
+                    Abbrechen
+                </button>
+                <button id="confirm-leave-button" class="bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-6 rounded-lg text-lg transition-colors w-1/2">
+                    Verlassen
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Lade-Overlay (unverändert) -->
+    <div id="loader" class="fixed inset-0 w-full h-full items-center justify-center flex z-50">
+        <div class="spinner w-16 h-16 border-8 border-slate-700 rounded-full"></div>
+        <p class="text-xl text-white mt-4 font-semibold">Verbinde mit Server...</p>
+    </div>
+
+    <!-- Sound-Effekte (unverändert) -->
+    <audio id="sound-draw" src="sounds/card-draw.mp3" preload="auto"></audio>
+    <audio id="sound-place" src="sounds/card-place.mp3" preload="auto"></audio>
+    <audio id="sound-flip" src="sounds/card-flip.mp3" preload="auto"></audio>
+    <audio id="sound-clear" src="sounds/column-clear.mp3" preload="auto"></audio>
+    <audio id="sound-round-end" src="sounds/round-end.mp3" preload="auto"></audio>
+
+
+    <!-- 
+    ================================================================
+    NEUES MULTIPLAYER-SKRIPT
+    ================================================================
+    -->
+    <script type="module">
+        // Firebase SDKs importieren
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { 
+            getAuth, 
+            signInAnonymously, 
+            onAuthStateChanged 
+        } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { 
+            getFirestore, 
+            doc, 
+            getDoc, 
+            setDoc, 
+            addDoc, 
+            updateDoc, 
+            deleteDoc, 
+            onSnapshot, 
+            collection,
+            serverTimestamp,
+            writeBatch
+        } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // --- Globale Variablen ---
+        let db, auth;
+        let userId;
+        let gameId = null; // Die ID des aktuellen Spiels
+        let unsubscribeGame = null; // Funktion, um das DB-Listening zu stoppen
+        let currentGameData = null; // Lokale Kopie des Spiel-Status
+
+        // ===================================================================
+        // HIER DEINE FIREBASE-KONFIGURATION EINFÜGEN (aus Schritt 1.3 der Anleitung)
+        // ===================================================================
+        // 1. Ersetze dies mit dem Objekt aus deinen Firebase-Projekteinstellungen
+        // ===================================================================
+// HIER DEINE FIREBASE-KONFIGURATION EINFÜGEN (aus Schritt 1.3 der Anleitung)
+// ===================================================================
+// 1. Ersetze dies mit dem Objekt aus deinen Firebase-Projekteinstellungen
+        const firebaseConfig = {
+        apiKey: "AIzaSyAeNB6gEFnKRPicGn0UYgrjG1m6lHllAOA",
+        authDomain: "skyjo-multiplayer.firebaseapp.com",
+        projectId: "skyjo-multiplayer",
+        storageBucket: "skyjo-multiplayer.firebasestorage.app",
+        messagingSenderId: "514693348398",
+        appId: "1:514693348398:web:279883b9c88fc33e82b3bf",
+        measurementId: "G-Q3X1NC2S6F"
+        };
+
+// 2. Ersetze dies mit deiner Projekt-ID (muss mit der oben übereinstimmen)
+const appId = "skyjo-multiplayer"; 
+// ===================================================================
+        // ===================================================================
+
+
+        // --- DOM-Elemente ---
+        const lobbyScreenEl = document.getElementById('lobby-screen');
+        const lobbyWaitAreaEl = document.getElementById('lobby-wait-area');
+        const createGameButtonEl = document.getElementById('create-game-button');
+        const joinGameButtonEl = document.getElementById('join-game-button');
+        const gameIdInputEl = document.getElementById('game-id-input');
+        const gameIdShareEl = document.getElementById('game-id-share');
+        const copyGameIdButtonEl = document.getElementById('copy-game-id-button');
+        const playerListEl = document.getElementById('player-list');
+        const startGameButtonEl = document.getElementById('start-game-button');
+        const lobbyErrorEl = document.getElementById('lobby-error');
+        
+        const gameContainerEl = document.getElementById('game-container');
+        const playerGridEl = document.getElementById('player-grid');
+        const opponentsAreaEl = document.getElementById('opponents-area');
+        const deckPileEl = document.getElementById('deck-pile');
+        const drawnCardAreaEl = document.getElementById('drawn-card-area'); // NEU
+        const discardPileEl = document.getElementById('discard-pile');
+        const messageEl = document.getElementById('message-area');
+        const playerScoreEl = document.getElementById('player-score');
+        
+        const modalEl = document.getElementById('modal');
+        const modalTitleEl = document.getElementById('modal-title');
+        const modalScoresContainerEl = document.getElementById('modal-scores-container');
+        const modalWinnerEl = document.getElementById('modal-winner');
+        const restartButtonEl = document.getElementById('restart-button');
+        
+        // HINZUGEFÜGT: Fehlende DOM-Element-Definition
+        const previousScoreDisplayEl = document.getElementById('previous-score-display');
+        
+        const loaderEl = document.getElementById('loader');
+
+        // Rules-Modal
+        const infoButtonEl = document.getElementById('info-button');
+        const rulesModalEl = document.getElementById('rules-modal');
+        const closeRulesButtonEl = document.getElementById('close-rules-button');
+        const rulesModalBgEl = document.getElementById('rules-modal-bg');
+
+        // NEU: Leave-Modal
+        const leaveGameButtonEl = document.getElementById('leave-game-button');
+        const leaveModalEl = document.getElementById('leave-modal');
+        const leaveModalBgEl = document.getElementById('leave-modal-bg');
+        const cancelLeaveButtonEl = document.getElementById('cancel-leave-button');
+        const confirmLeaveButtonEl = document.getElementById('confirm-leave-button');
+
+        // Sound-Manager (unverändert)
+        const sounds = {
+            draw: document.getElementById('sound-draw'),
+            place: document.getElementById('sound-place'),
+            flip: document.getElementById('sound-flip'),
+            clear: document.getElementById('sound-clear'),
+            roundEnd: document.getElementById('sound-round-end'),
+        };
+        const soundManager = {
+            play: (soundName) => {
+                const sound = sounds[soundName];
+                if (sound) {
+                    sound.currentTime = 0;
+                    sound.play().catch(e => console.warn("Sound-Wiedergabe blockiert.", e));
+                }
+            }
+        };
+
+
+        // --- Hauptfunktion bei DOM-Ladung ---
+        document.addEventListener('DOMContentLoaded', () => {
+            initFirebase();
+            setupLobbyListeners();
+            setupRulesModalListeners();
+            setupLeaveModalListeners(); // NEU
+            setupGameListeners(); // NEU: Fehlende Listener hinzugefügt
+        });
+
+        // --- 1. Firebase Initialisierung & Auth ---
+
+        async function initFirebase() {
+            // Prüfen, ob die Konfiguration ersetzt wurde
+            if (firebaseConfig.apiKey === "DEIN_API_KEY" || appId === "DEIN-PROJEKT-ID") {
+                document.body.innerHTML = `<div style="padding: 2rem; text-align: center; font-size: 1.2rem; color: white; background-color: #0f172a; min-height: 100vh;">
+                    <h1 style="font-size: 2rem; font-weight: bold; color: #ef4444;">Fehler: Firebase-Konfiguration fehlt!</h1>
+                    <p style="margin-top: 1rem;">Du musst die <code>firebaseConfig</code>-Variable und die <code>appId</code>-Variable im Skript (ca. Zeile 350-365) mit deinen eigenen Firebase-Daten ersetzen, bevor das Spiel funktioniert.</p>
+                    <p style="margin-top: 1rem;">Bitte folge der <code>Anleitung.md</code>, um dein Projekt bei Firebase einzurichten.</p>
+                    </div>`;
+                loaderEl.classList.add('hidden');
+                return;
+            }
+
+            try {
+                const app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+                
+                // Authentifizierung
+                onAuthStateChanged(auth, (user) => {
+                    if (user) {
+                        userId = user.uid;
+                        console.log("Angemeldet als:", userId);
+                        
+                        // NEU: Beim Laden prüfen, ob wir in einem Spiel waren
+                        const savedGameId = localStorage.getItem('skyjoGameId');
+                        if (savedGameId) {
+                            console.log("Gespeicherte Spiel-ID gefunden:", savedGameId);
+                            gameId = savedGameId;
+                            subscribeToGame(savedGameId);
+                        } else {
+                            // UI freischalten, wenn angemeldet
+                            loaderEl.classList.add('hidden');
+                        }
+
+                    } else {
+                        // Nicht angemeldet, UI blockieren
+                        loaderEl.classList.remove('hidden');
+                    }
+                });
+
+                // Anonym anmelden (ersetzt die alte Token-Logik)
+                await signInAnonymously(auth);
+
+            } catch (error) {
+                console.error("Firebase-Initialisierung fehlgeschlagen:", error);
+                lobbyErrorEl.textContent = "Verbindung zum Server fehlgeschlagen.";
+                // KORREKTUR: Lade-Spinner auch hier ausblenden
+                loaderEl.classList.add('hidden');
+            }
+        }
+
+        // --- 2. Lobby-Logik ---
+
+        function setupLobbyListeners() {
+            createGameButtonEl.addEventListener('click', createGame);
+            joinGameButtonEl.addEventListener('click', joinGame);
+            startGameButtonEl.addEventListener('click', dealAndStartGame);
+            copyGameIdButtonEl.addEventListener('click', copyGameId);
+        }
+
+        // NEU: Hinzugefügt, um Klicks auf die Stapel zu ermöglichen
+        function setupGameListeners() {
+            deckPileEl.addEventListener('click', onDeckDraw);
+            discardPileEl.addEventListener('click', onDiscardPileClick);
+        }
+
+        /**
+         * Erstellt ein neues Spiel-Dokument in Firestore (Lobby)
+         */
+        async function createGame() {
+            if (!userId) return;
+            loaderEl.classList.remove('hidden');
+            
+            const newPlayer = {
+                id: userId,
+                name: `Spieler 1`,
+                score: 0,
+                totalScore: 0,
+                grid: [], // Gitter ist anfangs leer
+                isHost: true
+            };
+
+            const newGame = {
+                status: 'lobby', // 'lobby', 'playing', 'round-over', 'game-over'
+                settings: {
+                    goalScore: 100, // TODO: Einstellbar machen
+                    flippedCards: 2, // TODO: Einstellbar machen
+                },
+                players: {
+                    [userId]: newPlayer // Spieler-Map, Schlüssel ist die userId
+                },
+                playerOrder: [userId], // Reihenfolge der Spieler
+                hostId: userId,
+                createdAt: serverTimestamp(),
+                // Spiel-Daten (Deck etc.) werden erst beim Starten hinzugefügt
+                deck: [],
+                discardPile: [],
+                currentPlayerId: null,
+                turnPhase: 'DRAW',
+                lastRoundTriggered: false,
+                playerWhoEndedRoundId: null,
+                message: "Warte auf Spielstart..."
+            };
+
+            try {
+                // ANGEPASST: Verwendet die 'appId'-Variable für den Pfad
+                const collectionRef = collection(db, `artifacts/${appId}/public/data/skyjo-games`);
+                const gameRef = await addDoc(collectionRef, newGame);
+                gameId = gameRef.id;
+                
+                // NEU: Spiel-ID speichern
+                localStorage.setItem('skyjoGameId', gameId);
+
+                // Dem Spiel beitreten (als Listener)
+                subscribeToGame(gameId);
+            } catch (error) {
+                console.error("Fehler beim Erstellen des Spiels:", error);
+                lobbyErrorEl.textContent = "Spiel konnte nicht erstellt werden.";
+                loaderEl.classList.add('hidden');
+            }
+        }
+
+        /**
+         * Tritt einem bestehenden Spiel bei
+         */
+        async function joinGame() {
+            if (!userId) return;
+            const idToJoin = gameIdInputEl.value.trim();
+            if (!idToJoin) {
+                lobbyErrorEl.textContent = "Bitte eine Spiel-ID eingeben.";
+                return;
+            }
+
+            loaderEl.classList.remove('hidden');
+            // ANGEPASST: Verwendet die 'appId'-Variable für den Pfad
+            const gameRef = doc(db, `artifacts/${appId}/public/data/skyjo-games`, idToJoin);
+
+            try {
+                const gameDoc = await getDoc(gameRef);
+                if (!gameDoc.exists()) {
+                    lobbyErrorEl.textContent = "Spiel nicht gefunden.";
+                    loaderEl.classList.add('hidden');
+                    return;
+                }
+
+                const gameData = gameDoc.data();
+                
+                if (gameData.status !== 'lobby') {
+                    lobbyErrorEl.textContent = "Spiel läuft bereits.";
+                    loaderEl.classList.add('hidden');
+                    return;
+                }
+                
+                if (Object.keys(gameData.players).length >= 4) {
+                    lobbyErrorEl.textContent = "Spiel ist voll (max. 4 Spieler).";
+                    loaderEl.classList.add('hidden');
+                    return;
+                }
+                
+                if (gameData.players[userId]) {
+                    // Bereits im Spiel, einfach beitreten
+                } else {
+                    // Neuer Spieler
+                    const newPlayer = {
+                        id: userId,
+                        name: `Spieler ${Object.keys(gameData.players).length + 1}`,
+                        score: 0,
+                        totalScore: 0,
+                        grid: [],
+                        isHost: false
+                    };
+                    
+                    await updateDoc(gameRef, {
+                        [`players.${userId}`]: newPlayer, // Fügt neuen Spieler zur Map hinzu
+                        playerOrder: [...gameData.playerOrder, userId] // Fügt Spieler zur Reihenfolge hinzu
+                    });
+                }
+                
+                gameId = idToJoin;
+                // NEU: Spiel-ID speichern
+                localStorage.setItem('skyjoGameId', gameId);
+                subscribeToGame(gameId);
+
+            } catch (error) {
+                console.error("Fehler beim Beitreten:", error);
+                lobbyErrorEl.textContent = "Fehler beim Beitreten.";
+                loaderEl.classList.add('hidden');
+            }
+        }
+
+        function copyGameId() {
+            gameIdShareEl.select();
+            try {
+                // Moderne Clipboard-API (bevorzugt, aber funktioniert evtl. nicht in iFrames)
+                navigator.clipboard.writeText(gameIdShareEl.value)
+                    .then(() => {
+                        copyGameIdButtonEl.textContent = "Kopiert!";
+                        setTimeout(() => copyGameIdButtonEl.textContent = "Kopieren", 2000);
+                    })
+                    .catch(() => {
+                        // Fallback für iFrames/ältere Browser
+                        document.execCommand('copy');
+                        copyGameIdButtonEl.textContent = "Kopiert!";
+                        setTimeout(() => copyGameIdButtonEl.textContent = "Kopieren", 2000);
+                    });
+            } catch (err) {
+                // Fallback für iFrames
+                document.execCommand('copy');
+                copyGameIdButtonEl.textContent = "Kopiert!";
+                setTimeout(() => copyGameIdButtonEl.textContent = "Kopieren", 2000);
+            }
+        }
+
+        /**
+         * Wird vom Host aufgerufen, um das Spiel zu starten, Karten auszuteilen.
+         */
+        async function dealAndStartGame() {
+            if (!userId || !gameId || userId !== currentGameData.hostId) return;
+
+            loaderEl.classList.remove('hidden');
+
+            try {
+                const game = currentGameData;
+                const newDeck = createDeck();
+                shuffleDeck(newDeck);
+                
+                const updates = {};
+                const playerIds = game.playerOrder;
+                
+                // Allen Spielern Karten geben
+                playerIds.forEach(pid => {
+                    const newGrid = [];
+                    for (let i = 0; i < 12; i++) {
+                        newGrid.push({ value: newDeck.pop(), faceUp: false, discarded: false });
+                    }
+                    // Zufällig 2 Karten aufdecken
+                    flipRandomCards(newGrid, game.settings.flippedCards);
+                    
+                    updates[`players.${pid}.grid`] = newGrid; // Update der Grid für jeden Spieler
+                });
+
+                updates.deck = newDeck;
+                updates.discardPile = [newDeck.pop()]; // Eine Karte auf den Ablagestapel
+                updates.status = 'playing';
+                updates.currentPlayerId = game.playerOrder[0]; // Erster Spieler (Host) ist dran
+                updates.turnPhase = 'DRAW';
+                updates.message = `Spiel gestartet! ${game.players[game.playerOrder[0]].name} ist am Zug.`;
+
+                // ANGEPASST: Verwendet die 'appId'-Variable für den Pfad
+                const gameRef = doc(db, `artifacts/${appId}/public/data/skyjo-games`, gameId);
+                await updateDoc(gameRef, updates);
+
+                // Loader wird durch den Snapshot-Handler ausgeblendet
+
+            } catch (error) {
+                console.error("Fehler beim Starten des Spiels:", error);
+                lobbyErrorEl.textContent = "Fehler beim Starten des Spiels.";
+                loaderEl.classList.add('hidden');
+            }
+        }
+
+
+        // --- 3. Echtzeit-Synchronisation (Kern-Logik) ---
+
+        /**
+         * Abonniert Spiel-Updates aus Firestore
+         */
+        function subscribeToGame(id) {
+            gameId = id;
+            
+            // Alten Listener kündigen, falls vorhanden
+            if (unsubscribeGame) {
+                unsubscribeGame();
+            }
+
+            // ANGEPASST: Verwendet die 'appId'-Variable für den Pfad
+            const gameRef = doc(db, `artifacts/${appId}/public/data/skyjo-games`, gameId);
+            
+            unsubscribeGame = onSnapshot(gameRef, (doc) => {
+                if (doc.exists()) {
+                    const gameData = doc.data();
+                    currentGameData = gameData; // Lokale Kopie für Aktionen speichern
+                    
+                    // Verarbeite den Spiel-Status
+                    handleGameUpdate(gameData);
+                    
+                } else {
+                    // Spiel wurde gelöscht
+                    alert("Das Spiel wurde beendet oder gelöscht.");
+                    resetToLobby();
+                }
+            }, (error) => {
+                console.error("Snapshot-Fehler:", error);
+                lobbyErrorEl.textContent = "Verbindung zum Spiel verloren.";
+                // KORREKTUR: Bei Fehler Lade-Spinner ausblenden und zur Lobby zurückkehren
+                loaderEl.classList.add('hidden');
+                resetToLobby();
+            });
+        }
+        
+        /**
+         * Verarbeitet den neuen Spiel-Status von Firestore und aktualisiert die UI
+         */
+        function handleGameUpdate(game) {
+            // UI-Status umschalten
+            if (game.status === 'lobby') {
+                // lobbyScreenEl.setAttribute('data-status', 'active');
+                // gameContainerEl.setAttribute('data-status', 'inactive');
+                lobbyScreenEl.classList.remove('hidden');
+                gameContainerEl.classList.add('hidden');
+                
+                // Lobby-Infos aktualisieren
+                lobbyWaitAreaEl.classList.remove('hidden');
+                gameIdInputEl.value = '';
+                gameIdShareEl.value = gameId;
+
+                // Spielerliste füllen
+                playerListEl.innerHTML = '';
+                game.playerOrder.forEach(pid => {
+                    const player = game.players[pid];
+                    const li = document.createElement('li');
+                    li.textContent = `${player.name} ${player.isHost ? '(Host)' : ''} ${pid === userId ? '(Du)' : ''}`;
+                    if (pid === userId) li.classList.add('text-blue-400', 'font-bold');
+                    playerListEl.appendChild(li);
+                });
+                
+                // "Spiel starten" Button für Host anzeigen (mind. 1 Spieler)
+                if (userId === game.hostId && game.playerOrder.length >= 1) { 
+                    startGameButtonEl.classList.remove('hidden');
+                } else {
+                    startGameButtonEl.classList.add('hidden');
+                }
+
+            } else if (game.status === 'playing') {
+                // lobbyScreenEl.setAttribute('data-status', 'inactive');
+                // gameContainerEl.setAttribute('data-status', 'active');
+                lobbyScreenEl.classList.add('hidden');
+                gameContainerEl.classList.remove('hidden');
+                leaveGameButtonEl.classList.remove('hidden'); // NEU: Verlassen-Button einblenden
+                previousScoreDisplayEl.classList.add('hidden'); // NEU: Scoreboard der letzten Runde ausblenden
+                modalEl.classList.add('hidden'); // Modal schließen, falls offen
+                
+                // Das komplette Spiel-Rendering
+                renderGame(game);
+                
+            } else if (game.status === 'round-over' || game.status === 'game-over') {
+                // Runden- oder Spielende-Modal anzeigen
+                renderGame(game); // Letztes Rendering, um alle Karten aufzudecken
+                leaveGameButtonEl.classList.remove('hidden'); // NEU: Verlassen-Button bleibt sichtbar
+                showEndModal(game);
+            }
+            
+            loaderEl.classList.add('hidden');
+        }
+
+        /**
+         * Setzt das UI zurück zum Lobby-Auswahlbildschirm
+         */
+        function resetToLobby() {
+            if (unsubscribeGame) {
+                unsubscribeGame();
+            }
+            gameId = null;
+            currentGameData = null;
+            unsubscribeGame = null;
+            
+            // ALT (KAPUTT):
+            // lobbyScreenEl.setAttribute('data-status', 'active');
+            // gameContainerEl.setAttribute('data-status', 'inactive');
+            
+            // NEU (REPARIERT):
+            lobbyScreenEl.classList.remove('hidden');
+            gameContainerEl.classList.add('hidden');
+
+            lobbyWaitAreaEl.classList.add('hidden');
+            startGameButtonEl.classList.add('hidden');
+            gameIdInputEl.value = '';
+            lobbyErrorEl.textContent = '';
+            
+            loaderEl.classList.add('hidden');
+            modalEl.classList.add('hidden');
+            leaveGameButtonEl.classList.add('hidden'); // NEU: Verlassen-Button ausblenden
+            
+            // NEU: Spiel-ID aus Speicher löschen
+            localStorage.removeItem('skyjoGameId');
+        }
+
+        // --- 4. Render-Funktionen ---
+
+        /**
+         * Rendert den gesamten Spielzustand
+         */
+        function renderGame(game) {
+            // DEBUGGING: Hinzugefügt, um den Fehler zu finden
+            console.log("Render Game... My UserID:", userId, "Players in Game:", game.players);
+            
+            // NEU: renderGame-Logik wiederhergestellt
+            const myPlayer = game.players[userId];
+            if (!myPlayer) {
+                console.error("Lokaler Spieler nicht im Spiel-Status gefunden! UI wird zurückgesetzt.");
+                resetToLobby(); // Diese Funktion ist jetzt repariert
+                return;
+            }
+
+            // 1. Mein Grid rendern
+            renderGrid(playerGridEl, myPlayer.grid, myPlayer, game);
+            playerScoreEl.textContent = calculateScore(myPlayer.grid, true); // Nur sichtbare Punkte zählen
+
+            // 2. Gegner-Grids rendern
+            opponentsAreaEl.innerHTML = '';
+            const myIndex = game.playerOrder.indexOf(userId);
+            // Gegner in der "visuellen" Reihenfolge rendern (beginnend links von mir)
+            for (let i = 1; i < game.playerOrder.length; i++) {
+                const opponentId = game.playerOrder[(myIndex + i) % game.playerOrder.length];
+                const opponent = game.players[opponentId];
+                if (!opponent) continue;
+
+                const opponentContainer = document.createElement('div');
+                opponentContainer.className = 'flex flex-col items-center opacity-70'; // Standardmäßig leicht ausgegraut
+                
+                // CSS-Klasse für den aktuellen Spieler
+                if (opponent.id === game.currentPlayerId) {
+                    opponentContainer.classList.remove('opacity-70');
+                    opponentContainer.classList.add('font-bold');
+                }
+
+                opponentContainer.innerHTML = `
+                    <h2 class="text-md font-bold mb-2 text-center text-red-400 ${opponent.id === game.currentPlayerId ? 'text-yellow-400' : ''}">${opponent.name}</h2>
+                    <div id="grid-${opponent.id}" class="grid grid-cols-[repeat(4,60px)] gap-y-2 gap-x-4 justify-center mb-2"></div>
+                    <p class="text-center text-md font-semibold">Punkte: <span id="score-${opponent.id}">${calculateScore(opponent.grid, true)}</span></p>
+                `;
+                opponentsAreaEl.appendChild(opponentContainer);
+                
+                const opponentGridEl = document.getElementById(`grid-${opponent.id}`);
+                renderGrid(opponentGridEl, opponent.grid, opponent, game);
+            }
+
+            // 3. Deck & Ablagestapel rendern
+            renderDeck(game.deck, game.discardPile);
+
+            // 4. Highlights & Nachrichten aktualisieren
+            updateHighlightsAndMessage(game);
+        }
+
+        /**
+         * Rendert ein einzelnes Grid (Spieler oder Gegner)
+         */
+        function renderGrid(element, grid, player, game) {
+            element.innerHTML = '';
+            if (!grid) return; // Grid ist vielleicht noch nicht initialisiert
+
+            grid.forEach((card, index) => {
+                const cardEl = document.createElement('div');
+                cardEl.classList.add('card');
+                
+                if (card.discarded) {
+                    cardEl.classList.add('discarded');
+                    cardEl.textContent = 'X';
+                } else if (card.faceUp || (game.status !== 'playing' && game.status !== 'lobby')) { // Am Rundenende alle aufdecken
+                    cardEl.classList.add('face-up');
+                    cardEl.textContent = card.value;
+                    cardEl.setAttribute('data-value', card.value);
+                } else {
+                    cardEl.classList.add('face-down');
+                    cardEl.textContent = 'SKYJO';
+                }
+                
+                // Event-Listener nur für den menschlichen Spieler hinzufügen
+                if (player.id === userId && !card.discarded && game.status === 'playing') {
+                    cardEl.addEventListener('click', () => onPlayerCardClick(index));
+                }
+                
+                element.appendChild(cardEl);
+            });
+        }
+
+        /**
+         * Rendert Deck, Ablagestapel und temporäres Feld
+         */
+        function renderDeck(deck, discardPile) {
+            // NEU: Temporären Bereich immer leeren
+            drawnCardAreaEl.innerHTML = '';
+            drawnCardAreaEl.classList.remove('face-up', 'highlight-player');
+            drawnCardAreaEl.removeAttribute('data-value');
+            drawnCardAreaEl.classList.add('border-dashed', 'border-slate-600'); // Placeholder-Stil
+
+            if(discardPile && discardPile.length > 0) {
+                const topDiscardCardValue = discardPile[discardPile.length - 1];
+                discardPileEl.textContent = topDiscardCardValue;
+                discardPileEl.setAttribute('data-value', topDiscardCardValue);
+                discardPileEl.classList.add('face-up');
+                discardPileEl.classList.remove('opacity-50', 'cursor-not-allowed');
+            } else {
+                discardPileEl.textContent = '';
+                discardPileEl.setAttribute('data-value', '');
+                discardPileEl.classList.add('opacity-50', 'cursor-not-allowed');
+            }
+            
+            if (!deck || deck.length === 0) {
+                deckPileEl.classList.add('opacity-50', 'cursor-not-allowed');
+                deckPileEl.textContent = "LEER";
+            } else {
+                deckPileEl.classList.remove('opacity-50', 'cursor-not-allowed');
+                deckPileEl.textContent = "SKYJO";
+            }
+        }
+        
+        // KORREKTUR: Fehlende Funktion hinzugefügt
+        /**
+         * Aktualisiert das Nachrichtenfeld
+         */
+        function setMessage(msg) {
+            messageEl.textContent = msg;
+        }
+
+        /**
+         * Setzt Highlights und Nachrichten basierend auf dem Spielstatus
+         */
+        function updateHighlightsAndMessage(game) {
+            const myTurn = game.currentPlayerId === userId;
+            const myPlayer = game.players[userId];
+            
+            setMessage(game.message); // Server-Nachricht anzeigen
+
+            // Alte Highlights entfernen
+            playerGridEl.classList.remove('highlight-grid-player');
+            opponentsAreaEl.querySelectorAll('.highlight-grid-opponent').forEach(el => el.classList.remove('highlight-grid-opponent'));
+            discardPileEl.classList.remove('highlight-player');
+            drawnCardAreaEl.classList.remove('highlight-player', 'face-up'); // NEU
+            drawnCardAreaEl.innerHTML = ''; // NEU
+            drawnCardAreaEl.removeAttribute('data-value'); // NEU
+            drawnCardAreaEl.classList.add('border-dashed', 'border-slate-600'); // NEU
+
+            if (!myTurn) {
+                // Gegner ist dran
+                const opponentGridEl = document.getElementById(`grid-${game.currentPlayerId}`);
+                if (opponentGridEl) {
+                    opponentGridEl.parentElement.classList.remove('opacity-70');
+                    opponentGridEl.parentElement.classList.add('font-bold');
+                }
+                // (Highlights für Aktionen des Gegners werden durch `highlightCard` gesteuert)
+                return; 
+            }
+            
+            // Ich bin am Zug
+            // Highlights für Aktionen setzen
+            if (game.turnPhase === 'DRAW') {
+                deckPileEl.classList.add('highlight-player');
+                if (game.discardPile.length > 0) {
+                    discardPileEl.classList.add('highlight-player');
+                }
+                setMessage("Du bist am Zug. Ziehe eine Karte.");
+            } else if (game.turnPhase === 'DECK_DRAWN') {
+                // NEU: Karte im neuen Bereich anzeigen
+                drawnCardAreaEl.textContent = game.selectedCard.value;
+                drawnCardAreaEl.setAttribute('data-value', game.selectedCard.value);
+                drawnCardAreaEl.classList.add('highlight-player', 'face-up');
+                drawnCardAreaEl.classList.remove('border-dashed', 'border-slate-600');
+                
+                playerGridEl.classList.add('highlight-grid-player');
+                // Erlaube Klick auf Ablagestapel zum Ablegen
+                discardPileEl.classList.add('highlight-player');
+                setMessage(`Gezogen: ${game.selectedCard.value}. Tauschen? Klicke DEINE KARTE. Ablegen? Klicke den ABLAGESTAPEL.`);
+            } else if (game.turnPhase === 'DISCARD_DRAWN') {
+                // KORREKTUR: Gezogene Karte (vom Ablagestapel) auch hier anzeigen
+                drawnCardAreaEl.textContent = game.selectedCard.value;
+                drawnCardAreaEl.setAttribute('data-value', game.selectedCard.value);
+                drawnCardAreaEl.classList.add('highlight-player', 'face-up');
+                drawnCardAreaEl.classList.remove('border-dashed', 'border-slate-600');
+
+                discardPileEl.classList.remove('highlight-player'); // Highlight entfernt, da man nicht ablegen kann
+                playerGridEl.classList.add('highlight-grid-player');
+                setMessage("Du MUSST diese Karte tauschen. Wähle eine deiner Karten.");
+            } else if (game.turnPhase === 'FLIP_REQUIRED') {
+                playerGridEl.classList.add('highlight-grid-player');
+                setMessage("Du musst eine deiner VERDECKTEN Karten aufdecken.");
+            }
+        }
+        
+        // --- 5. Spiel-Aktionen (Client-seitig) ---
+
+        /**
+         * Wird aufgerufen, wenn der Spieler auf eine seiner Karten klickt
+         */
+        async function onPlayerCardClick(index) {
+            const game = currentGameData;
+            const myTurn = game.currentPlayerId === userId;
+            
+            if (!myTurn || !gameId) return;
+
+            const clickedCard = game.players[userId].grid[index];
+            if (clickedCard.discarded) return;
+
+            // Logik je nach Spielphase
+            if (game.turnPhase === 'DECK_DRAWN' || game.turnPhase === 'DISCARD_DRAWN') {
+                // Tauschen
+                soundManager.play('place');
+                await swapCard(index, game.selectedCard.value, clickedCard.value);
+
+            } else if (game.turnPhase === 'FLIP_REQUIRED') {
+                // Aufdecken nach Ablegen
+                if (clickedCard.faceUp) {
+                    setMessage("Du musst eine VERDECKTE Karte aufdecken.");
+                    return;
+                }
+                soundManager.play('flip');
+                await flipCard(index);
+
+            } else if (game.turnPhase === 'DRAW') {
+                 setMessage("Du musst zuerst eine Karte ziehen.");
+            }
+        }
+
+        /**
+         * Wird aufgerufen, wenn der Spieler auf den Nachziehstapel klickt
+         */
+        async function onDeckDraw() {
+            const game = currentGameData;
+            if (game.currentPlayerId !== userId || game.turnPhase !== 'DRAW') return;
+
+            soundManager.play('draw');
+            
+            let deck = [...game.deck];
+            let discardPile = [...game.discardPile];
+
+            // Deck neu mischen, wenn leer
+            if (deck.length === 0) {
+                if (discardPile.length <= 1) {
+                    setMessage("Keine Karten mehr im Spiel!");
+                    return;
+                }
+                const topCard = discardPile.pop();
+                deck = shuffleDeck(discardPile);
+                discardPile = [topCard];
+            }
+
+            const drawnCard = deck.pop();
+            const updates = {
+                deck: deck,
+                discardPile: discardPile,
+                turnPhase: 'DECK_DRAWN',
+                selectedCard: { value: drawnCard },
+                message: `${game.players[userId].name} hat vom Stapel gezogen...`
+            };
+
+            const gameRef = doc(db, `artifacts/${appId}/public/data/skyjo-games`, gameId);
+            await updateDoc(gameRef, updates);
+        }
+
+        /**
+         * Wird aufgerufen, wenn der Spieler auf den Ablagestapel klickt
+         */
+        async function onDiscardPileClick() {
+            const game = currentGameData;
+            if (game.currentPlayerId !== userId) return;
+
+            // Fall 1: Karte vom Ablagestapel nehmen (Phase DRAW)
+            if (game.turnPhase === 'DRAW') {
+                if (game.discardPile.length === 0) {
+                    setMessage("Ablagestapel ist leer!");
+                    return;
+                }
+                
+                soundManager.play('draw');
+                
+                let discardPile = [...game.discardPile];
+                const drawnCard = discardPile.pop();
+                
+                const updates = {
+                    discardPile: discardPile,
+                    turnPhase: 'DISCARD_DRAWN',
+                    selectedCard: { value: drawnCard },
+                    message: `${game.players[userId].name} hat vom Ablagestapel genommen.`
+                };
+                
+                const gameRef = doc(db, `artifacts/${appId}/public/data/skyjo-games`, gameId);
+                await updateDoc(gameRef, updates);
+                return;
+            }
+
+            // Fall 2: Gezogene Karte auf Ablagestapel ablegen (Phase DECK_DRAWN)
+            if (game.turnPhase === 'DECK_DRAWN') {
+                const myPlayer = game.players[userId];
+                const hasFaceDownCards = myPlayer.grid.some(card => !card.faceUp && !card.discarded);
+                
+                if (!hasFaceDownCards) {
+                    setMessage("Du musst tauschen! Alle deine Karten sind bereits aufgedeckt.");
+                    return;
+                }
+                
+                soundManager.play('place');
+                
+                let discardPile = [...game.discardPile];
+                discardPile.push(game.selectedCard.value);
+                
+                const updates = {
+                    discardPile: discardPile,
+                    turnPhase: 'FLIP_REQUIRED',
+                    selectedCard: null,
+                    message: `${game.players[userId].name} legt die gezogene Karte ab.`
+                };
+                
+                const gameRef = doc(db, `artifacts/${appId}/public/data/skyjo-games`, gameId);
+                await updateDoc(gameRef, updates);
+                return;
+            }
+        }
+        
+        // --- 6. Server-Aktionen (Datenbank-Updates) ---
+        
+        /**
+         * Tauscht eine Karte im Grid des Spielers
+         */
+        async function swapCard(gridIndex, newCardValue, oldCardValue) {
+            const game = currentGameData;
+            let myGrid = [...game.players[userId].grid];
+            
+            myGrid[gridIndex] = { value: newCardValue, faceUp: true, discarded: false };
+            
+            // Spalte prüfen
+            const { clearedGrid, clearedCards } = checkAndClearColumn(myGrid, gridIndex);
+            
+            let discardPile = [...game.discardPile, oldCardValue];
+            if (clearedCards.length > 0) {
+                clearedCards.forEach(card => discardPile.push(card.value));
+                myGrid = clearedGrid; // Aktualisiertes Grid mit 'discarded'
+            }
+
+            const updates = {
+                [`players.${userId}.grid`]: myGrid,
+                discardPile: discardPile,
+                selectedCard: null
+            };
+            
+            // Nächsten Spieler bestimmen
+            endTurn(updates);
+        }
+        
+        /**
+         * Deckt eine Karte im Grid des Spielers auf
+         */
+        async function flipCard(gridIndex) {
+            const game = currentGameData;
+            let myGrid = [...game.players[userId].grid];
+            
+            myGrid[gridIndex] = { ...myGrid[gridIndex], faceUp: true };
+
+            // Spalte prüfen
+            const { clearedGrid, clearedCards } = checkAndClearColumn(myGrid, gridIndex);
+            
+            let discardPile = [...game.discardPile];
+            if (clearedCards.length > 0) {
+                clearedCards.forEach(card => discardPile.push(card.value));
+                myGrid = clearedGrid;
+            }
+            
+            const updates = {
+                [`players.${userId}.grid`]: myGrid,
+                discardPile: discardPile
+            };
+            
+            // Nächsten Spieler bestimmen
+            endTurn(updates);
+        }
+
+        /**
+         * Berechnet den nächsten Zug und beendet die Runde
+         */
+        async function endTurn(updates) {
+            const game = currentGameData;
+            
+            // Prüfen, ob die Runde durch diesen Zug beendet wurde
+            const myGrid = updates[`players.${userId}.grid`] || game.players[userId].grid;
+            const roundEnded = myGrid.every(card => card.faceUp || card.discarded);
+            
+            if (roundEnded && !game.lastRoundTriggered) {
+                // Der Spieler hat die Runde beendet!
+                updates.lastRoundTriggered = true;
+                updates.playerWhoEndedRoundId = userId;
+                updates.message = `${game.players[userId].name} hat alle Karten aufgedeckt! Letzte Runde!`;
+            }
+
+            // Nächsten Spieler bestimmen
+            const nextPlayerId = getNextPlayerId(game);
+            
+            if (nextPlayerId === 'ROUND_END') {
+                // Die Runde ist offiziell vorbei
+                calculateFinalScores(); // Diese Funktion schreibt die finalen Scores
+                return;
+            }
+            
+            updates.currentPlayerId = nextPlayerId;
+            updates.turnPhase = 'DRAW';
+            if (!updates.message) { // Nur wenn keine spezielle Nachricht (z.B. Rundenende) gesetzt wurde
+                updates.message = `${game.players[nextPlayerId].name} ist am Zug.`;
+            }
+            
+            const gameRef = doc(db, `artifacts/${appId}/public/data/skyjo-games`, gameId);
+            await updateDoc(gameRef, updates);
+        }
+
+        /**
+         * Berechnet die finalen Scores und beendet die Runde/das Spiel
+         */
+        async function calculateFinalScores() {
+            soundManager.play('roundEnd');
+            const game = currentGameData;
+            
+            const batch = writeBatch(db);
+            // ANGEPASST: Verwendet die 'appId'-Variable für den Pfad
+            const gameRef = doc(db, `artifacts/${appId}/public/data/skyjo-games`, gameId);
+
+            let roundScores = {};
+            
+            // Alle Karten aufdecken und finale Spalten prüfen
+            game.playerOrder.forEach(pid => {
+                let playerGrid = [...game.players[pid].grid];
+                playerGrid.forEach(card => card.faceUp = true);
+                
+                for (let col = 0; col < 4; col++) {
+                    const { clearedGrid, clearedCards } = checkAndClearColumn(playerGrid, col);
+                    if (clearedCards.length > 0) {
+                        playerGrid = clearedGrid;
+                        // Abgeräumte Karten kommen nicht auf den Ablagestapel am Ende
+                    }
+                }
+                
+                batch.update(gameRef, { [`players.${pid}.grid`]: playerGrid });
+                roundScores[pid] = calculateScore(playerGrid);
+            });
+
+            // Straf-Regel anwenden
+            const endingPlayerId = game.playerWhoEndedRoundId;
+            const endingPlayerScore = roundScores[endingPlayerId];
+            const lowestScore = Math.min(...Object.values(roundScores));
+
+            if (endingPlayerId && endingPlayerScore > lowestScore && endingPlayerScore > 0) {
+                roundScores[endingPlayerId] *= 2; // Strafe!
+            }
+            
+            // Gesamtpunkte aktualisieren
+            let gameEnded = false;
+            game.playerOrder.forEach(pid => {
+                const newTotalScore = game.players[pid].totalScore + roundScores[pid];
+                batch.update(gameRef, {
+                    [`players.${pid}.score`]: roundScores[pid],
+                    [`players.${pid}.totalScore`]: newTotalScore
+                });
+                if (newTotalScore >= game.settings.goalScore) {
+                    gameEnded = true;
+                }
+            });
+
+            if (gameEnded) {
+                batch.update(gameRef, { status: 'game-over' });
+            } else {
+                batch.update(gameRef, { status: 'round-over' });
+            }
+            
+            await batch.commit();
+        }
+
+        /**
+         * Zeigt das Modal am Runden- oder Spielende
+         */
+        function showEndModal(game) {
+            modalScoresContainerEl.innerHTML = '';
+            
+            // Punktestände der letzten Runde für die Anzeige sammeln
+            const previousScores = [];
+
+            game.playerOrder.forEach(pid => {
+                const player = game.players[pid];
+                const scoreDiv = document.createElement('div');
+                scoreDiv.innerHTML = `
+                    <p class="font-semibold ${pid === userId ? 'text-blue-400' : 'text-red-400'}">${player.name}</p>
+                    <p>Runde: <span class="font-bold">${player.score}</span> | Gesamt: <span class="font-bold">${player.totalScore}</span></p>
+                `;
+                modalScoresContainerEl.appendChild(scoreDiv);
+                
+                previousScores.push({ name: player.name, score: player.score, isPlayer: pid === userId });
+            });
+            
+            // Punktestand der letzten Runde (links oben) aktualisieren
+            previousScoresListEl.innerHTML = '';
+            previousScores.sort((a, b) => a.score - b.score).forEach(p => {
+                const scoreEntry = document.createElement('div');
+                scoreEntry.className = `flex justify-between ${p.isPlayer ? 'text-blue-300' : 'text-red-300'}`;
+                scoreEntry.innerHTML = `
+                    <span>${p.name}:</span>
+                    <span class="font-bold">${p.score}</span>
+                `;
+                previousScoresListEl.appendChild(scoreEntry);
+            });
+            previousScoreDisplayEl.classList.remove('hidden');
+
+            
+            if (game.status === 'game-over') {
+                modalTitleEl.textContent = "Spiel beendet!";
+                
+                let winner = [...game.playerOrder].sort((a, b) => game.players[a].totalScore - game.players[b].totalScore)[0];
+                const winners = game.playerOrder.filter(pid => game.players[pid].totalScore === game.players[winner].totalScore);
+
+                if (winners.length > 1) {
+                    modalWinnerEl.textContent = "Unentschieden!";
+                    modalWinnerEl.className = "text-2xl font-semibold mb-8 text-yellow-400";
+                } else {
+                    modalWinnerEl.textContent = `${game.players[winner].name} gewinnt das Spiel!`;
+                    modalWinnerEl.className = "text-2xl font-semibold mb-8 text-blue-400";
+                }
+                
+                restartButtonEl.textContent = "Neues Spiel";
+                restartButtonEl.onclick = () => {
+                    // Zurück zur Lobby
+                    leaveGame(); // Einfachste Methode, um alles zurückzusetzen
+                };
+                
+            } else {
+                // 'round-over'
+                modalTitleEl.textContent = "Runde beendet!";
+                
+                let roundWinner = [...game.playerOrder].sort((a, b) => game.players[a].score - game.players[b].score)[0];
+                const roundWinners = game.playerOrder.filter(pid => game.players[pid].score === game.players[roundWinner].score);
+
+                if (roundWinners.length > 1) {
+                    modalWinnerEl.textContent = "Runde Unentschieden!";
+                    modalWinnerEl.className = "text-2xl font-semibold mb-8 text-yellow-400";
+                } else {
+                    modalWinnerEl.textContent = `${game.players[roundWinner].name} gewinnt diese Runde!`;
+                    modalWinnerEl.className = "text-2xl font-semibold mb-8 text-blue-400";
+                }
+
+                restartButtonEl.textContent = "Nächste Runde";
+                // Nur Host kann nächste Runde starten
+                if (userId === game.hostId) {
+                    restartButtonEl.onclick = startNextRound;
+                    restartButtonEl.classList.remove('hidden');
+                } else {
+                    restartButtonEl.classList.add('hidden');
+                    modalWinnerEl.textContent += " (Warte auf Host...)";
+                }
+            }
+            
+            modalEl.classList.remove('hidden');
+            modalEl.classList.add('flex');
+        }
+
+        async function startNextRound() {
+             if (!gameId || userId !== currentGameData.hostId) return;
+             
+             loaderEl.classList.remove('hidden');
+             modalEl.classList.add('hidden');
+             
+             // Alle Runden-spezifischen Daten zurücksetzen
+             const game = currentGameData;
+             const newDeck = createDeck();
+             shuffleDeck(newDeck);
+                
+             const batch = writeBatch(db);
+             // ANGEPASST: Verwendet die 'appId'-Variable für den Pfad
+             const gameRef = doc(db, `artifacts/${appId}/public/data/skyjo-games`, gameId);
+                
+             // Allen Spielern neue Karten geben
+             game.playerOrder.forEach(pid => {
+                 const newGrid = [];
+                 for (let i = 0; i < 12; i++) {
+                     newGrid.push({ value: newDeck.pop(), faceUp: false, discarded: false });
+                 }
+                 flipRandomCards(newGrid, game.settings.flippedCards);
+                 
+                 batch.update(gameRef, {
+                     [`players.${pid}.grid`]: newGrid,
+                     [`players.${pid}.score`]: 0
+                 });
+             });
+
+             batch.update(gameRef, {
+                 deck: newDeck,
+                 discardPile: [newDeck.pop()],
+                 status: 'playing',
+                 currentPlayerId: game.playerOrder[0], // Erster Spieler ist dran
+                 turnPhase: 'DRAW',
+                 message: `Nächste Runde! ${game.players[game.playerOrder[0]].name} ist am Zug.`,
+                 lastRoundTriggered: false,
+                 playerWhoEndedRoundId: null,
+                 selectedCard: null
+             });
+             
+             await batch.commit();
+        }
+
+        // --- 7. Deck/Logik-Helfer (Meist unverändert) ---
+        
+        function createDeck() {
+            const deck = [];
+            for (let i = 0; i < 5; i++) deck.push(-2);
+            for (let i = 0; i < 10; i++) deck.push(-1);
+            for (let i = 0; i < 15; i++) deck.push(0);
+            for (let val = 1; val <= 12; val++) {
+                for (let i = 0; i < 10; i++) deck.push(val);
+            }
+            return deck;
+        }
+
+        function shuffleDeck(deck) {
+            for (let i = deck.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [deck[i], deck[j]] = [deck[j], deck[i]];
+            }
+            return deck;
+        }
+
+        function flipRandomCards(grid, count) {
+            const faceDownIndices = [];
+            grid.forEach((card, index) => {
+                if (!card.faceUp) faceDownIndices.push(index);
+            });
+            shuffleDeck(faceDownIndices);
+            for (let i = 0; i < count && i < faceDownIndices.length; i++) {
+                grid[faceDownIndices[i]].faceUp = true;
+            }
+        }
+
+        function calculateScore(grid, visibleOnly = false) {
+            if (!grid) return 0;
+            return grid.reduce((total, card) => {
+                if (card.discarded) return total;
+                if (visibleOnly && !card.faceUp) return total;
+                return total + card.value;
+            }, 0);
+        }
+
+        function getColumnIndices(index) {
+            const col = index % 4;
+            return [col, col + 4, col + 8];
+        }
+
+        function checkAndClearColumn(grid, changedIndex) {
+            const colIndices = getColumnIndices(changedIndex);
+            if (colIndices.some(i => !grid[i])) return { clearedGrid: grid, clearedCards: [] }; 
+            
+            const cards = colIndices.map(i => grid[i]);
+            if (cards.some(c => !c.faceUp || c.discarded)) return { clearedGrid: grid, clearedCards: [] };
+
+            const firstValue = cards[0].value;
+            if (cards.every(c => c.value === firstValue)) {
+                soundManager.play('clear');
+                const clearedCards = [];
+                const newGrid = grid.map((card, i) => {
+                    if (colIndices.includes(i) && !card.discarded) {
+                        clearedCards.push(card);
+                        return { ...card, discarded: true };
+                    }
+                    return card;
+                });
+                return { clearedGrid: newGrid, clearedCards: clearedCards };
+            }
+            return { clearedGrid: grid, clearedCards: [] };
+        }
+        
+        function highlightCard(gridEl, index, playerType) {
+            if (!gridEl || !gridEl.children[index]) return;
+            const cardEl = gridEl.children[index];
+            if (cardEl) {
+                const highlightClass = playerType === 'player' ? 'highlight-player' : 'highlight-ai';
+                cardEl.classList.add(highlightClass);
+                setTimeout(() => {
+                    if(cardEl) cardEl.classList.remove('highlight-player', 'highlight-ai');
+                }, 1000);
+            }
+        }
+        
+        // --- 8. UI-Listener (Regeln-Modal) ---
+        function setupRulesModalListeners() {
+            infoButtonEl.addEventListener('click', () => {
+                rulesModalEl.classList.remove('hidden');
+                rulesModalEl.classList.add('flex');
+            });
+            
+            const closeRulesModal = () => {
+                rulesModalEl.classList.add('hidden');
+                rulesModalEl.classList.remove('flex');
+            };
+            
+            closeRulesButtonEl.addEventListener('click', closeRulesModal);
+            rulesModalBgEl.addEventListener('click', closeRulesModal);
+        }
+        
+        // --- NEU: 9. UI-Listener (Spiel verlassen Modal) ---
+        function setupLeaveModalListeners() {
+            leaveGameButtonEl.addEventListener('click', () => {
+                leaveModalEl.classList.remove('hidden');
+                leaveModalEl.classList.add('flex');
+            });
+
+            const closeLeaveModal = () => {
+                leaveModalEl.classList.add('hidden');
+                leaveModalEl.classList.remove('flex');
+            };
+
+            cancelLeaveButtonEl.addEventListener('click', closeLeaveModal);
+            leaveModalBgEl.addEventListener('click', closeLeaveModal);
+            confirmLeaveButtonEl.addEventListener('click', () => {
+                closeLeaveModal();
+                leaveGame();
+            });
+        }
+
+        // --- NEU: 10. Spiel verlassen Logik ---
+        async function leaveGame() {
+            if (!userId || !gameId || !currentGameData) {
+                resetToLobby();
+                return;
+            }
+
+            loaderEl.classList.remove('hidden');
+
+            try {
+                // 1. Vom Spiel abmelden
+                if (unsubscribeGame) {
+                    unsubscribeGame();
+                }
+
+                const gameRef = doc(db, `artifacts/${appId}/public/data/skyjo-games`, gameId);
+                let game = currentGameData; // Nimm die letzte bekannte Kopie
+
+                // 2. Spieler aus dem Spiel entfernen
+                const updates = {};
+                delete updates[`players.${userId}`]; // Entfernt den Spieler aus der Map
+
+                const newPlayerOrder = game.playerOrder.filter(pid => pid !== userId);
+                updates.playerOrder = newPlayerOrder;
+
+                // 3. Host-Logik (wenn der Host geht)
+                if (game.hostId === userId && newPlayerOrder.length > 0) {
+                    // Mache den nächsten Spieler zum Host
+                    const newHostId = newPlayerOrder[0];
+                    updates.hostId = newHostId;
+                    updates[`players.${newHostId}.isHost`] = true;
+                    updates.message = `${game.players[userId].name} hat das Spiel verlassen. ${game.players[newHostId].name} ist der neue Host.`;
+                } else {
+                    updates.message = `${game.players[userId].name} hat das Spiel verlassen.`;
+                }
+
+                // 4. Spiel-Status prüfen
+                if (newPlayerOrder.length === 0) {
+                    // Letzter Spieler geht, Spiel löschen
+                    await deleteDoc(gameRef);
+                } else if (newPlayerOrder.length < 2 && game.status === 'lobby') {
+                    // In der Lobby, warte auf mehr Spieler. Host-Button wird durch Snapshot aktualisiert.
+                    await updateDoc(gameRef, updates);
+                } else if (game.status === 'playing' && game.currentPlayerId === userId) {
+                    // Der Spieler, der dran war, ist gegangen. Gib den Zug weiter.
+                    updates.currentPlayerId = getNextPlayerId(game, userId); // Benutze eine modifizierte Funktion
+                    await updateDoc(gameRef, updates);
+                } else {
+                    // Normales Verlassen
+                    await updateDoc(gameRef, updates);
+                }
+
+            } catch (error) {
+                console.error("Fehler beim Verlassen des Spiels:", error);
+            } finally {
+                // 5. UI zurücksetzen (passiert immer, egal ob Update klappt)
+                resetToLobby();
+            }
+        }
+        
+        // Überschreibt die alte getNextPlayerId-Funktion, um den "leave"-Fall zu behandeln
+        function getNextPlayerId(game, leavingPlayerId = null) {
+            const playerOrder = leavingPlayerId ? game.playerOrder.filter(pid => pid !== leavingPlayerId) : game.playerOrder;
+            if (playerOrder.length === 0) return null;
+
+            const currentPlayerId = leavingPlayerId || game.currentPlayerId;
+            let currentIndex = playerOrder.indexOf(currentPlayerId);
+
+            // Wenn der verlassende Spieler nicht gefunden wird (oder der aktuelle Spieler), starte bei 0
+            if (currentIndex === -1) {
+                 currentIndex = 0;
+            }
+            
+            // Wenn der Spieler, der dran war, geht, ist der nächste in der *neuen* Liste dran
+            const nextIndex = (currentIndex + (leavingPlayerId ? 0 : 1)) % playerOrder.length;
+            const nextPlayerId = playerOrder[nextIndex];
+
+            if (game.lastRoundTriggered && nextPlayerId === game.playerWhoEndedRoundId) {
+                return 'ROUND_END';
+            }
+            
+            return nextPlayerId;
+        }
+
+
+    </script>
+</body>
+</html>
+
