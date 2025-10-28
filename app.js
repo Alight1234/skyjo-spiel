@@ -1056,16 +1056,27 @@ async function discardAndFlip(game, playerId, index, updatedDiscardPile) {
 
         const playerIndex = game.players.findIndex(p => p && p.id === playerId);
         if (playerIndex === -1) { throw new Error(`discardAndFlip: Spieler ${playerId} nicht gefunden.`); }
+        
         updatedPlayers = JSON.parse(JSON.stringify(game.players));
         const player = updatedPlayers[playerIndex];
         const discardPile = [...(updatedDiscardPile || game.discardPile || [])];
         let roundEndTriggered = false;
         let clearedIndices = [];
+        
+        // NEUE LOGIK: Bestimme die nächste Phase
+        let nextPhase = 'DRAW'; // Standardmäßig ist der Zug danach vorbei
 
-        if (index !== null) { // Karte aufdecken
-             if (!player.grid || index < 0 || index >= player.grid.length || !player.grid[index]) {
+        if (index !== null) { 
+            // ----- FALL 1: Karte WIRD aufgedeckt (weil FLIP_REQUIRED war) -----
+            if (!player.grid || index < 0 || index >= player.grid.length || !player.grid[index]) {
                  throw new Error(`Ungültiger Index ${index} zum Aufdecken für ${playerId}`);
             }
+            if (player.grid[index].faceUp) { // Sollte nicht passieren, aber sicher ist sicher
+                console.warn("Versuch, bereits aufgedeckte Karte umzudrehen.");
+                actionInProgress = false; // Aktion freigeben, damit User nochmal klicken kann
+                return; 
+            }
+            
             player.grid[index].faceUp = true;
             clearedIndices = checkAndClearColumn(player.grid, index);
             if (clearedIndices.length > 0) {
@@ -1077,15 +1088,26 @@ async function discardAndFlip(game, playerId, index, updatedDiscardPile) {
                      }
                 });
             }
-            // WICHTIG: Prüfe Rundenende mit dem *neuen* Grid-Zustand
-            roundEndTriggered = triggerEndRoundCheck({ ...game, players: updatedPlayers }, player); // Verwende updatedPlayers
+            // Prüfe Rundenende mit dem *neuen* Grid-Zustand
+            roundEndTriggered = triggerEndRoundCheck({ ...game, players: updatedPlayers }, player);
+            nextPhase = 'DRAW'; // Zug ist jetzt definitiv vorbei
 
-        } // Falls index === null (nur ablegen), wird roundEndTriggered hier nicht true
+        } else {
+            // ----- FALL 2: Karte WURDE abgelegt (index ist null) -----
+            // Der User muss jetzt eine Karte aufdecken
+            nextPhase = 'FLIP_REQUIRED';
+        }
 
-        console.log("Update DB nach Ablegen/Aufdecken.");
-        await updateDoc(gameDocRef, { players: updatedPlayers, discardPile, selectedCard: null, turnPhase: 'DRAW' });
+        console.log(`Update DB nach Ablegen/Aufdecken. Nächste Phase: ${nextPhase}`);
+        // KORREKTUR: Verwende die 'nextPhase' Variable
+        await updateDoc(gameDocRef, { 
+            players: updatedPlayers, 
+            discardPile, 
+            selectedCard: null, 
+            turnPhase: nextPhase // Setze die korrekte nächste Phase
+        });
 
-        // UI Highlights
+        // UI Highlights (nur wenn eine Karte aufgedeckt wurde)
         if (index !== null) {
             const playerType = player.isAI ? 'ai' : (playerId === userId ? 'player' : 'other');
             if (playerType !== 'other') {
@@ -1099,11 +1121,19 @@ async function discardAndFlip(game, playerId, index, updatedDiscardPile) {
             }
         }
 
-        nextGameState = { ...game, players: updatedPlayers, discardPile, selectedCard: null, turnPhase: 'DRAW',
+        nextGameState = { ...game, players: updatedPlayers, discardPile, selectedCard: null, turnPhase: nextPhase,
                            lastRoundTriggered: game.lastRoundTriggered || roundEndTriggered,
                            playerWhoEndedRoundId: roundEndTriggered ? playerId : game.playerWhoEndedRoundId };
-        console.log("Rufe endTurn nach Ablegen/Aufdecken auf.");
-        await endTurn(gameDocRef, nextGameState, roundEndTriggered);
+
+        // KORREKTUR: endTurn nur aufrufen, wenn der Zug WIRKLICH vorbei ist
+        if (nextPhase === 'DRAW') {
+            console.log("Rufe endTurn nach Aufdecken auf.");
+            await endTurn(gameDocRef, nextGameState, roundEndTriggered);
+        } else {
+            // WICHTIG: Aktion freigeben, damit der Spieler seine Karte anklicken kann
+            console.log("Warte auf Karten-Flip (FLIP_REQUIRED).");
+            actionInProgress = false; 
+        }
 
     } catch (error) {
         console.error("Fehler bei discardAndFlip:", error);
